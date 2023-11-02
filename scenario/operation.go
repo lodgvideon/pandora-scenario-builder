@@ -1,6 +1,24 @@
 package scenario
 
-import "go.uber.org/zap"
+import (
+	"go.uber.org/zap"
+)
+
+type IOperation interface {
+	SetPrev(o IOperation)
+	SetNext(o IOperation)
+	Named
+	Executor
+}
+
+type Named interface {
+	SetName(name string)
+	Name() string
+}
+
+type Executor interface {
+	Exec(ctx *Context)
+}
 
 type Operation struct {
 	name             string
@@ -8,8 +26,9 @@ type Operation struct {
 	beforeOperations []BeforeOperation
 	operation        *OperationFn
 	afterOperations  []AfterOperation
-	ctx              Context
-	next             *Operation
+	ctx              *Context
+	next             IOperation
+	prev             IOperation
 }
 
 func (o *Operation) Name() string {
@@ -23,7 +42,7 @@ type OperationBuilder struct {
 	_operation *Operation
 }
 
-func (o *Operation) Exec(op *Operation, ctx *Context) {
+func (o *Operation) Exec(ctx *Context) {
 	//TODO проверка - будет ли выполнена операция
 	if !o.condition(ctx) {
 		return
@@ -60,16 +79,26 @@ func (o *Operation) AddAfterOperation(f AfterOperation) {
 	o.afterOperations = append(o.afterOperations, f)
 }
 
-func (o *Operation) SetNext(op *Operation) {
+func (o *Operation) SetNext(op IOperation) {
+	op.SetPrev(o)
 	o.next = op
 }
 
-func (o *Operation) Next() *Operation {
+func (o *Operation) SetPrev(op IOperation) {
+	o.prev = op
+}
+
+func (o *Operation) Next() IOperation {
 	return o.next
 }
 
+func (o *Operation) Prev() IOperation {
+	return o.prev
+}
+
 func (b *OperationBuilder) Build() *Operation {
-	return b._operation
+	operation := *b._operation
+	return &operation
 }
 
 func (b *OperationBuilder) BeforeOperation(f BeforeOperation) *OperationBuilder {
@@ -87,9 +116,16 @@ func (b *OperationBuilder) After(o AfterOperation) *OperationBuilder {
 	return b
 }
 
+func (b *OperationBuilder) SetName(name string) *OperationBuilder {
+	b._operation.SetName(name)
+	return b
+}
+
 type OperationFn = func(op *Operation, ctx *Context) *OperationResult
 
-func NewOperationBuilder(name string) *OperationBuilder {
+// NewAbstractOperationBuilder Init buuilder for abstract Operation.
+// In abstract operation, any code can be executed and metered
+func NewAbstractOperationBuilder(name string) *OperationBuilder {
 	o := &Operation{name: name,
 		condition: func(context *Context) bool {
 			return true

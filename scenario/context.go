@@ -11,6 +11,14 @@ type Context struct {
 	prev *OperationResult
 }
 
+func (c *Context) Vars() *vars.Vars {
+	return c.vars
+}
+
+func (c *Context) V() *vars.Vars {
+	return c.vars
+}
+
 func (c *Context) SetPrev(prev *OperationResult) {
 	c.prev = prev
 }
