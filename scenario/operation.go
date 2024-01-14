@@ -2,6 +2,7 @@ package scenario
 
 import (
 	"go.uber.org/zap"
+	"sync"
 )
 
 type IOperation interface {
@@ -29,6 +30,7 @@ type Operation struct {
 	ctx              *Context
 	next             IOperation
 	prev             IOperation
+	result           *OperationResult
 }
 
 func (o *Operation) Name() string {
@@ -43,6 +45,7 @@ type OperationBuilder struct {
 }
 
 func (o *Operation) Exec(ctx *Context) {
+	o.ctx = ctx
 	//TODO проверка - будет ли выполнена операция
 	if !o.condition(ctx) {
 		return
@@ -56,7 +59,10 @@ func (o *Operation) Exec(ctx *Context) {
 	}
 	operation := *o.operation
 	if operationResult := operation(o, ctx); operationResult != nil {
+		//Вот это место вызывает сомнения. Оно нужно - для доступа к результату предыдущей операии - из контекста
+		//следующей. (Например для того - чтобы вытащить Бади ответа от сервера
 		ctx.SetPrev(operationResult)
+		o.SetResult(operationResult)
 	} else {
 		ctx.L().Error("Operation not return Result",
 			zap.String("name", o.Name()),
@@ -67,6 +73,7 @@ func (o *Operation) Exec(ctx *Context) {
 		//TODO: Сделать обработку ошибок
 		_ = aftOp(o, ctx)
 		//Выполняем список операций до появлении операции с ошибкой
+		//	Если ошибка - то фейлить результат операции
 
 	}
 }
@@ -94,6 +101,21 @@ func (o *Operation) Next() IOperation {
 
 func (o *Operation) Prev() IOperation {
 	return o.prev
+}
+
+func (o *Operation) Result() *OperationResult {
+	return o.result
+}
+
+func (o *Operation) ReleaseResult() {
+	result := o.result
+	o.result = nil
+	ReleaseResult(result)
+	o.ctx.prev = nil
+}
+
+func (o *Operation) SetResult(result *OperationResult) {
+	o.result = result
 }
 
 func (b *OperationBuilder) Build() *Operation {
@@ -137,6 +159,27 @@ func NewAbstractOperationBuilder(name string) *OperationBuilder {
 type BeforeOperation func(operation *Operation, ctx *Context) error
 type AfterOperation func(operation *Operation, ctx *Context) error
 
+var resultPool = sync.Pool{New: func() interface{} {
+	return &OperationResult{
+		Request:  nil,
+		Response: nil,
+	}
+}}
+
+func AcquireResult() *OperationResult {
+	return resultPool.Get().(*OperationResult)
+
+}
+
+func ReleaseResult(res *OperationResult) {
+	res.Clear()
+	resultPool.Put(res)
+}
+func (r *OperationResult) Clear() {
+	r.Request = nil
+	r.Response = nil
+}
+
 type OperationResult struct {
 	Request  interface{}
 	Response interface{}
@@ -147,6 +190,6 @@ func (o *OperationResult) Req() interface{} {
 	return o.Request
 }
 
-func (o *OperationResult) Res() interface{} {
+func (o *OperationResult) Resp() interface{} {
 	return o.Response
 }

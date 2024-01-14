@@ -34,6 +34,8 @@ func (c *Context) Log() *zap.Logger {
 	return c.logs
 }
 
-func NewContext(l *zap.Logger) *Context {
+func NewContext() *Context {
+
+	l, _ := zap.NewProduction()
 	return &Context{vars: vars.NewVars(), logs: l}
 }
